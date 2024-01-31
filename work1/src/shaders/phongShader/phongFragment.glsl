@@ -23,6 +23,8 @@ varying highp vec3 vNormal;
 #define EPS 1e-3
 #define PI 3.141592653589793
 #define PI2 6.283185307179586
+#define SHADOW_MAP_SIZE 2048.
+#define FRUSTUM_SIZE  400.
 
 uniform sampler2D uShadowMap;
 
@@ -43,6 +45,13 @@ highp float rand_2to1(vec2 uv ) {
 float unpack(vec4 rgbaDepth) {
     const vec4 bitShift = vec4(1.0, 1.0/256.0, 1.0/(256.0*256.0), 1.0/(256.0*256.0*256.0));
     return dot(rgbaDepth, bitShift);
+}
+
+float getShadowBias(float c, float filterRadiusUV){
+  vec3 normal = normalize(vNormal);
+  vec3 lightDir = normalize(uLightPos - vFragPos);
+  float fragSize = (1. + ceil(filterRadiusUV)) * (FRUSTUM_SIZE / SHADOW_MAP_SIZE / 2.);
+  return max(fragSize, fragSize * (1.0 - dot(normal, lightDir))) * c;
 }
 
 vec2 poissonDisk[NUM_SAMPLES];
@@ -104,10 +113,11 @@ float PCSS(sampler2D shadowMap, vec4 coords){
 }
 
 
-float useShadowMap(sampler2D shadowMap, vec4 shadowCoord){
+float useShadowMap(sampler2D shadowMap, vec4 shadowCoord, float biasC, float filterRadiusUV){
   float depth = unpack(texture2D(shadowMap, shadowCoord.xy));
   float cur_depth = shadowCoord.z;
-  if(cur_depth > depth + EPS){
+  float bias = getShadowBias(biasC, filterRadiusUV);
+  if(cur_depth - bias >= depth + EPS){
     return 0.;
   }
   else{
@@ -145,7 +155,10 @@ void main(void) {
   shadowCoord.xyz = (shadowCoord.xyz + 1.0) / 2.0;
 
   float visibility;
-  visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0));
+  float bias = .4;
+// 硬阴影无PCF，最后参数传0
+  visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0), bias, 0.);
+  // visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0));
   //visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0));
   //visibility = PCSS(uShadowMap, vec4(shadowCoord, 1.0));
 
