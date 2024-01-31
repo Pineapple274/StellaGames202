@@ -15,6 +15,7 @@ varying highp vec3 vFragPos;
 varying highp vec3 vNormal;
 
 // Shadow map related variables
+#define FILTER_RADIUS 10.
 #define NUM_SAMPLES 20
 #define BLOCKER_SEARCH_NUM_SAMPLES NUM_SAMPLES
 #define PCF_NUM_SAMPLES NUM_SAMPLES
@@ -96,8 +97,20 @@ float findBlocker( sampler2D shadowMap,  vec2 uv, float zReceiver ) {
 	return 1.0;
 }
 
-float PCF(sampler2D shadowMap, vec4 coords) {
-  return 1.0;
+float useShadowMap(sampler2D shadowMap, vec4 shadowCoord, float biasC, float filterRadiusUV);
+
+float PCF(sampler2D shadowMap, vec4 coords, float biasC, float filterRadiusUV) {
+  //uniformDiskSamples(coords.xy);
+  poissonDiskSamples(coords.xy); //使用xy坐标作为随机种子生成
+  float visibility = 0.0;
+  for(int i = 0; i < NUM_SAMPLES; i++){
+    vec2 offset = poissonDisk[i] * filterRadiusUV;
+    float shadowDepth = useShadowMap(shadowMap, coords + vec4(offset, 0., 0.), biasC, filterRadiusUV);
+    if(coords.z > shadowDepth + EPS){
+      visibility++;
+    }
+  }
+  return 1.0 - visibility / float(NUM_SAMPLES);
 }
 
 float PCSS(sampler2D shadowMap, vec4 coords){
@@ -154,16 +167,22 @@ void main(void) {
   //把[-1,1]的NDC坐标转换为[0,1]的坐标
   shadowCoord.xyz = (shadowCoord.xyz + 1.0) / 2.0;
 
-  float visibility;
-  float bias = .4;
-// 硬阴影无PCF，最后参数传0
-  visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0), bias, 0.);
-  // visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0));
-  //visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0));
+  float visibility = 1.;
+
+  // 无PCF时的Shadow Bias
+  float nonePCFBiasC = .4;
+  // 有PCF时的Shadow Bias
+  float pcfBiasC = .2;
+  // PCF的采样范围，因为是在Shadow Map上采样，需要除以Shadow Map大小，得到uv坐标上的范围
+  float filterRadiusUV = FILTER_RADIUS / SHADOW_MAP_SIZE;
+
+  // 硬阴影无PCF，最后参数传0
+  //visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0), nonePCFBiasC, 0.);
+  visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0), pcfBiasC, filterRadiusUV);
   //visibility = PCSS(uShadowMap, vec4(shadowCoord, 1.0));
 
   vec3 phongColor = blinnPhong();
 
   gl_FragColor = vec4(phongColor * visibility, 1.0);
-  // gl_FragColor = vec4(phongColor, 1.0);
+  //gl_FragColor = vec4(phongColor, 1.0);
 }
